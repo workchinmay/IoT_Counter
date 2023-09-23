@@ -1,0 +1,84 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <LiquidCrystal_I2C.h>
+#include <EEPROM.h>
+
+const char* ssid = "Janhavi";
+const char* password = "anantvijaya";
+const char* googleSheetURL = "https://script.google.com/macros/s/AKfycbzGkdK8StnBtgonJXprOvDm7YfuUHjtFyq7Yzcnut-FAk3-DiSEJ0R1CkvAOTucYEFD/exec";
+
+const int irSensorPin = 13;
+const int resetButtonPin = 2;
+const int EEPROM_RESTART_ADDRESS = 0;  // Address for restart count in EEPROM
+const int EEPROM_COUNT_ADDRESS = sizeof(int);  // Address for actual count in EEPROM
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+int count = 0;
+int restartCount = 0;
+int previousState = HIGH;
+int currentState;
+
+void setup() {
+  Serial.begin(9600);
+
+  // Initialize EEPROM
+  EEPROM.begin(2 * sizeof(int));
+
+  // Retrieve both counts from EEPROM
+  EEPROM.get(EEPROM_RESTART_ADDRESS, restartCount);
+  EEPROM.get(EEPROM_COUNT_ADDRESS, count);
+
+  restartCount++;  // Increment restart count
+  EEPROM.put(EEPROM_RESTART_ADDRESS, restartCount);
+  EEPROM.commit();
+ 
+  lcd.init();
+  lcd.backlight();
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(10);
+    Serial.print(".");
+  }
+  Serial.println("Connected to WiFi!");
+  pinMode(resetButtonPin, INPUT);
+}
+
+void loop() {
+  currentState = digitalRead(irSensorPin);
+
+  if (previousState == LOW && currentState == HIGH) {
+    count++;
+    Serial.println("Count: " + String(count));
+   
+    // Save actual count to EEPROM
+    EEPROM.put(EEPROM_COUNT_ADDRESS, count);
+    EEPROM.commit();
+
+    lcd.clear();
+    lcd.print("Count: ");
+    lcd.print(count);
+
+    // Send count to Google Sheets
+    HTTPClient httpClient;
+    httpClient.begin(googleSheetURL);
+    httpClient.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    httpClient.POST("count=" + String(count));
+    httpClient.end();
+  }
+
+  previousState = currentState;  // Update the previous state for the next iteration
+
+  // Uncomment the below lines if you want to reset count when a button is pressed
+  /*
+  if (digitalRead(resetButtonPin) == LOW) {
+    Serial.println("Resetting Count...");
+    count = 0;
+  }
+  */
+
+  // Display restart count 
+  lcd.setCursor(0, 1);
+  lcd.print("Restarts: " + String(restartCount));
+
+  delay(1000);
+}
